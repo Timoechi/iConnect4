@@ -63,11 +63,55 @@ int main(int argc, char** argv) {
   // initialize first move to 4 (center column)
   P.play("4");
   gameHistory = "4";
-
-  // hardcoded movesets and predictions
-  
+  std::cout << gameHistory << " " << line << "\n";
 
   for(int l = 1; std::getline(std::cin, line); l++) {
+    // test input
+    P.play("1"); gameHistory += line;
+    std::cout << gameHistory << " " << line << "\n";
+
+    // opening moves
+    while(gameHistory.size() < 6) {
+      switch(std::stoi(gameHistory)) {
+        case 41:
+          P.play("4");
+          break;
+        case 42:
+          P.play("2");
+          break;
+        case 43:
+          P.play("6");
+          break;
+        case 44:
+          P.play("4");
+          break;
+        case 45:
+          P.play("2");
+          break;
+        case 46:
+          P.play("6");
+          break;
+        case 47:
+          P.play("7");
+          break;
+      }
+      gameHistory += line;
+      std::cout << gameHistory << " " << line << "\n";
+
+      // test input
+      P.play(1); gameHistory += line;
+      std::cout << gameHistory << " " << line << "\n";
+
+      switch(std::stoi(gameHistory)) {
+        case 4141:
+          P.play("5");
+          break;
+      }
+      gameHistory += line;
+      std::cout << gameHistory << " " << line << "\n";
+    }
+
+    // autonomous play
     if(line == "reset") {
       std::cout << "Resetting\n";
       P = Position();
