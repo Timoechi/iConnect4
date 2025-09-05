@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
           P.play("6");
           break;
         case 47:
-          P.play("7");
+          P.play("4");
           break;
       }
       gameHistory += line;
