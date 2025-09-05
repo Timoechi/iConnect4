@@ -35,19 +35,26 @@ using namespace GameSolver::Connect4;
  *  Any invalid position (invalid sequence of move, or already won game)
  *  will generate an error message to standard error and an empty line to standard output.
  */
-int main(int argc, char** argv) {
+int main(int argc, char **argv)
+{
   Solver solver;
   bool weak = false;
   bool analyze = false;
 
   std::string opening_book = "7x6.book";
-  for(int i = 1; i < argc; i++) {
-    if(argv[i][0] == '-') {
-      if(argv[i][1] == 'w') weak = true; // parameter -w: use weak solver
-      else if(argv[i][1] == 'b') { // paramater -b: define an alternative opening book
-        if(++i < argc) opening_book = std::string(argv[i]);
+  for (int i = 1; i < argc; i++)
+  {
+    if (argv[i][0] == '-')
+    {
+      if (argv[i][1] == 'w')
+        weak = true; // parameter -w: use weak solver
+      else if (argv[i][1] == 'b')
+      { // paramater -b: define an alternative opening book
+        if (++i < argc)
+          opening_book = std::string(argv[i]);
       }
-      else if(argv[i][1] == 'a') { // paramater -a: make an analysis of all possible moves
+      else if (argv[i][1] == 'a')
+      { // paramater -a: make an analysis of all possible moves
         analyze = true;
       }
     }
@@ -63,61 +70,65 @@ int main(int argc, char** argv) {
   // initialize first move to 4 (center column)
   P.play("4");
   gameHistory = "4";
+  // test input
+  P.play("1");
+  gameHistory += "1";
+  std::cout << gameHistory << "\n";
 
-  for(int l = 1; std::getline(std::cin, line); l++) {
-    // test input
-    P.play("3"); gameHistory += "3";
-    std::cout << gameHistory << "\n";
+  // opening
+  switch (std::stoi(gameHistory))
+  {
+  case 41:
+    P.play("4");
+    gameHistory += "4";
+    break;
+  case 42:
+    P.play("2");
+    gameHistory += "2";
+    break;
+  case 43:
+    P.play("6");
+    gameHistory += "6";
+    break;
+  case 44:
+    P.play("4");
+    gameHistory += "4";
+    break;
+  case 45:
+    P.play("2");
+    gameHistory += "2";
+    break;
+  case 46:
+    P.play("6");
+    gameHistory += "6";
+    break;
+  case 47:
+    P.play("7");
+    gameHistory += "7";
+    break;
+  }
+  std::cout << gameHistory << "\n";
 
-    // opening moves
-    if(gameHistory.size() < 5) {
-      switch(std::stoi(gameHistory)) {
-        case 41:
-          P.play("4");
-          gameHistory += "4";
-          break;
-        case 42:
-          P.play("2");
-          gameHistory += "2";
-          break;
-        case 43:
-          P.play("6");
-          gameHistory += "6";
-          break;
-        case 44:
-          P.play("4");
-          gameHistory += "4";
-          break;
-        case 45:
-          P.play("2");
-          gameHistory += "2";
-          break;
-        case 46:
-          P.play("6");
-          gameHistory += "6";
-          break;
-        case 47:
-          P.play("7");
-          gameHistory += "7";
-          break;
-      }
-      std::cout << gameHistory << "\n";
+  // test input
+  P.play("1");
+  gameHistory += "1";
+  std::cout << gameHistory << "\n";
 
-      // test input
-      P.play("1"); gameHistory += "1";
-      std::cout << gameHistory << "\n";
+  switch (std::stoi(gameHistory))
+  {
+  case 4141:
+    P.play("5");
+    gameHistory += "5";
+    break;
+  }
+  std::cout << gameHistory << "\n";
+  line.clear();
 
-      switch(std::stoi(gameHistory)) {
-        case 4141:
-          P.play("5");
-          gameHistory += "5";
-          break;
-      }
-      std::cout << gameHistory << "\n";
-    }
-
-    // autonomous play
-    if(line == "reset") {
+  // autonomous play
+  for (int l = 1; std::getline(std::cin, line); l++)
+  {
+    if (line == "reset")
+    {
       std::cout << "Resetting\n";
       P = Position();
       gameHistory.clear();
@@ -125,44 +136,54 @@ int main(int argc, char** argv) {
       P.play("4");
       gameHistory = "4";
       std::srand(time(0));
-    } 
-    else if(P.play(line) != line.size()) {
+    }
+    else if (P.play(line) != line.size())
+    {
       std::cerr << "Line " << l << ": Invalid move " << (P.nbMoves() + 1) << " \"" << line << "\"" << std::endl;
     }
-    else {
+    else
+    {
       gameHistory += line;
       std::cout << gameHistory;
-      
-      if(analyze) {
+
+      if (analyze)
+      {
         std::vector<int> scores = solver.analyze(P, weak);
-        for(int i = 0; i < Position::WIDTH; i++) std::cout << " " << scores[i];
+        for (int i = 0; i < Position::WIDTH; i++)
+          std::cout << " " << scores[i];
 
         auto maxScore = std::max_element(scores.begin(), scores.end());
         std::cout << " Max: " << *maxScore;
         std::cout << " Column: ";
-        
+
         columns.clear(); // reset column vector
-        for (size_t i = 0; i < scores.size(); i++) {
-          if (scores[i] == *maxScore) {
-            columns.push_back(i+1);
-            std::cout << i+1 << " ";
+        for (size_t i = 0; i < scores.size(); i++)
+        {
+          if (scores[i] == *maxScore)
+          {
+            columns.push_back(i + 1);
+            std::cout << i + 1 << " ";
           }
         }
 
         // play best move
-        if(!columns.empty()) {
-          if(columns.size() > 1) {
+        if (!columns.empty())
+        {
+          if (columns.size() > 1)
+          {
             int assignedIndex = std::rand() % columns.size(); // generate random numbers equal to # columns
             P.play(std::to_string(columns[assignedIndex]));
             gameHistory += std::to_string(columns[assignedIndex]);
           }
-          else {
+          else
+          {
             P.play(std::to_string(columns[0]));
             gameHistory += std::to_string(columns[0]);
           }
         }
       }
-      else {
+      else
+      {
         int score = solver.solve(P, weak);
         std::cout << " " << score;
       }
