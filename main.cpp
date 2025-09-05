@@ -63,52 +63,57 @@ int main(int argc, char** argv) {
   // initialize first move to 4 (center column)
   P.play("4");
   gameHistory = "4";
-  std::cout << gameHistory << " " << line << "\n";
 
   for(int l = 1; std::getline(std::cin, line); l++) {
     // test input
-    P.play("1"); gameHistory += line;
-    std::cout << gameHistory << " " << line << "\n";
+    P.play("3"); gameHistory += "3";
+    std::cout << gameHistory << "\n";
 
     // opening moves
-    while(gameHistory.size() < 6) {
+    if(gameHistory.size() < 5) {
       switch(std::stoi(gameHistory)) {
         case 41:
           P.play("4");
+          gameHistory += "4";
           break;
         case 42:
           P.play("2");
+          gameHistory += "2";
           break;
         case 43:
           P.play("6");
+          gameHistory += "6";
           break;
         case 44:
           P.play("4");
+          gameHistory += "4";
           break;
         case 45:
           P.play("2");
+          gameHistory += "2";
           break;
         case 46:
           P.play("6");
+          gameHistory += "6";
           break;
         case 47:
-          P.play("4");
+          P.play("7");
+          gameHistory += "7";
           break;
       }
-      gameHistory += line;
-      std::cout << gameHistory << " " << line << "\n";
+      std::cout << gameHistory << "\n";
 
       // test input
-      P.play(1); gameHistory += line;
-      std::cout << gameHistory << " " << line << "\n";
+      P.play("1"); gameHistory += "1";
+      std::cout << gameHistory << "\n";
 
       switch(std::stoi(gameHistory)) {
         case 4141:
           P.play("5");
+          gameHistory += "5";
           break;
       }
-      gameHistory += line;
-      std::cout << gameHistory << " " << line << "\n";
+      std::cout << gameHistory << "\n";
     }
 
     // autonomous play
