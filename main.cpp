@@ -28,9 +28,6 @@ void openingMoves(std::string& line, std::string& gameHistory, Position& P);
 int main(int argc, char **argv)
 {
   Solver solver;
-  std::string opening_book = "7x6.book";
-  solver.loadBook(opening_book);
-
   std::string line;
   std::string gameHistory;
   std::vector<int> columns;
@@ -41,8 +38,8 @@ int main(int argc, char **argv)
   P.play("4");
   gameHistory = "4";
   // test input
-  P.play("3");
-  gameHistory += "3";
+  P.play("4");
+  gameHistory += "4";
   std::cout << gameHistory << "\n";
   // play opener
   openingMoves(line, gameHistory, P);
@@ -56,6 +53,7 @@ int main(int argc, char **argv)
       P = Position();
       gameHistory.clear();
 
+      // initialize first move to 4 (center column)
       P.play("4");
       gameHistory = "4";
       std::srand(time(0));
@@ -73,7 +71,7 @@ int main(int argc, char **argv)
     else
     {
       gameHistory += line;
-      std::cout << gameHistory;
+      std::cout << gameHistory << "\n";
 
       std::vector<int> scores = solver.analyze(P);
       for (int i = 0; i < Position::WIDTH; i++)
@@ -100,12 +98,14 @@ int main(int argc, char **argv)
         {
           int assignedIndex = std::rand() % columns.size(); // generate random numbers equal to # columns
           P.play(std::to_string(columns[assignedIndex]));
+          std::cout << "\nPlaying: " << columns[assignedIndex] << "\n";
           gameHistory += std::to_string(columns[assignedIndex]);
         }
         else
         {
           P.play(std::to_string(columns[0]));
           gameHistory += std::to_string(columns[0]);
+          std::cout << "\nPlaying: " << columns[0] << "\n";
         }
       }
 
@@ -296,6 +296,6 @@ void openingMoves(std::string& line, std::string& gameHistory, Position& P) {
     P.play("4"); gameHistory += "4";
     break;
   }
-  std::cout << gameHistory << "\n";
+  std::cout << gameHistory << "\n\n";
   line.clear();
 }

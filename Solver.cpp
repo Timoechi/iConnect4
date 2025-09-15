@@ -78,7 +78,7 @@ int Solver::negamax(const Position &P, int alpha, int beta) {
     }
   }
 
-  if(int val = book.get(P)) return val + Position::MIN_SCORE - 1; // look for solutions stored in opening book
+  //if(int val = book.get(P)) return val + Position::MIN_SCORE - 1; // look for solutions stored in opening book
 
   MoveSorter moves;
   for(int i = Position::WIDTH; i--;)
