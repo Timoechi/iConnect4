@@ -145,9 +145,8 @@ int main(void)
 		  positionState = 0;
 		  printf("Closed state\n");
 	  }
-	  HAL_Delay(1000);
+	  HAL_Delay(250);
 	}
-	HAL_Delay(250);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
