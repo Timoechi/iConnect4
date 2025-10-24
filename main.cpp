@@ -17,13 +17,20 @@
  */
 
 #include "Solver.hpp"
+#include <termios.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string>
+#include <vector>
 #include <iostream>
 #include <algorithm>
 #include <iterator>
 #include <ctime>
+#include <cstdlib>
 
 using namespace GameSolver::Connect4;
-void openingMoves(std::string& line, std::string& gameHistory, Position& P);
+void openingMoves(int fd, std::string& line, std::string& gameHistory, Position& P);
+void playMove(int fd, std::string line);
 
 int main(int argc, char **argv)
 {
@@ -34,19 +41,49 @@ int main(int argc, char **argv)
   Position P;
   std::srand(time(0));
 
+  // open UART
+  int fd = open("/dev/serial0", O_RDWR | O_NOCTTY | O_SYNC);
+  if (fd < 0) { perror("open /dev/serial0"); return 1; }
+
+  struct termios tty;
+  if (tcgetattr(fd, &tty) < 0) return -1;
+  cfsetispeed(&tty, B115200);
+  cfsetospeed(&tty, B115200);
+  tty.c_cflag |= (CLOCAL | CREAD);
+  tty.c_cflag &= ~CSIZE;
+  tty.c_cflag |= CS8;
+  tty.c_cflag &= ~PARENB;
+  tty.c_cflag &= ~CSTOPB;
+  tty.c_cflag &= ~CRTSCTS;
+  tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+  tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+  tty.c_oflag &= ~OPOST;
+  tty.c_cc[VMIN] = 1;
+  tty.c_cc[VTIME] = 1;
+  if (tcsetattr(fd, TCSANOW, &tty)) return -1;
+  tcflush(fd, TCIOFLUSH);
+  usleep(100000); // 100ms
+
+  // wait for STM
+  char c;
+  for (;;) if (read(fd, &c, 1) == 1 && c == 'r') break;
+  std::cout << "Ready!\n";
+  usleep(200000); // 200ms
+
   // initialize first move to 4 (center column)
-  P.play("4");
+  P.play("4"); playMove(fd, "4");
   gameHistory = "4";
-  // test input
-  P.play("4");
-  gameHistory += "4";
-  std::cout << gameHistory << "\n";
-  // play opener
-  openingMoves(line, gameHistory, P);
 
   // autonomous play
-  for (int l = 1; std::getline(std::cin, line); l++)
+  for (int l = 1;; l++)
   {
+    if (read(fd, &c, 1) != 1) continue; // wait until one digit is received
+    
+    std::string line;
+    if (c == '0') line = "reset";
+    else if (c >= '1' && c <= '7') line.assign(1, c);
+    else continue;
+
     if (line == "reset")
     {
       std::cout << "Resetting\n";
@@ -54,15 +91,9 @@ int main(int argc, char **argv)
       gameHistory.clear();
 
       // initialize first move to 4 (center column)
-      P.play("4");
+      P.play("4"); playMove(fd, "4");
       gameHistory = "4";
       std::srand(time(0));
-      // test input
-      P.play("3");
-      gameHistory += "3";
-      std::cout << gameHistory << "\n";
-      // play opener
-      openingMoves(line, gameHistory, P);
     }
     else if (P.play(line) != line.size())
     {
@@ -72,230 +103,295 @@ int main(int argc, char **argv)
     {
       gameHistory += line;
       std::cout << gameHistory << "\n";
-
-      std::vector<int> scores = solver.analyze(P);
-      for (int i = 0; i < Position::WIDTH; i++)
-        std::cout << " " << scores[i];
-
-      auto maxScore = std::max_element(scores.begin(), scores.end());
-      std::cout << " Max: " << *maxScore;
-      std::cout << " Column: ";
-
-      columns.clear(); // reset column vector
-      for (size_t i = 0; i < scores.size(); i++)
+      
+      if (gameHistory.size() <= 4) openingMoves(fd, line, gameHistory, P);
+      else 
       {
-        if (scores[i] == *maxScore)
-        {
-          columns.push_back(i + 1);
-          std::cout << i + 1 << " ";
-        }
-      }
+        std::vector<int> scores = solver.analyze(P);
+        for (int i = 0; i < Position::WIDTH; i++)
+          std::cout << " " << scores[i];
 
-      // play best move
-      if (!columns.empty())
-      {
-        if (columns.size() > 1)
-        {
-          int assignedIndex = std::rand() % columns.size(); // generate random numbers equal to # columns
-          P.play(std::to_string(columns[assignedIndex]));
-          std::cout << "\nPlaying: " << columns[assignedIndex] << "\n";
-          gameHistory += std::to_string(columns[assignedIndex]);
-        }
-        else
-        {
-          P.play(std::to_string(columns[0]));
-          gameHistory += std::to_string(columns[0]);
-          std::cout << "\nPlaying: " << columns[0] << "\n";
-        }
-      }
+        auto maxScore = std::max_element(scores.begin(), scores.end());
+        std::cout << " Max: " << *maxScore;
+        std::cout << " Column: ";
 
-      std::cout << std::endl;
+        columns.clear(); // reset column vector
+        for (size_t i = 0; i < scores.size(); i++)
+        {
+          if (scores[i] == *maxScore)
+          {
+            columns.push_back(i + 1);
+            std::cout << i + 1 << " ";
+          }
+        }
+
+        // play best move
+        if (!columns.empty())
+        {
+          if (columns.size() > 1)
+          {
+            int assignedIndex = std::rand() % columns.size(); // generate random numbers equal to # columns
+            P.play(std::to_string(columns[assignedIndex])); playMove(fd, std::to_string(columns[assignedIndex]));
+            std::cout << "\nPlaying: " << columns[assignedIndex] << "\n";
+            gameHistory += std::to_string(columns[assignedIndex]);
+          }
+          else
+          {
+            P.play(std::to_string(columns[0])); playMove(fd, std::to_string(columns[0]));
+            gameHistory += std::to_string(columns[0]);
+            std::cout << "\nPlaying: " << columns[0] << "\n";
+          }
+        }
+        std::cout << std::endl;
+      }
     }
   }
 }
 
-void openingMoves(std::string& line, std::string& gameHistory, Position& P) {
-  switch (std::stoi(gameHistory))
-  {
-  case 41:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 42:
-    P.play("2"); gameHistory += "2";
-    break;
-  case 43:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 44:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 45:
-    P.play("2"); gameHistory += "2";
-    break;
-  case 46:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 47:
-    P.play("4"); gameHistory += "4";
-    break;
-  }
-  std::cout << gameHistory << "\n";
+void playMove(int fd, std::string line) {
+  char c = '0' + std::stoi(line);
+  ssize_t n = write(fd, &c, 1);
+  if (n == 1) tcdrain(fd);
+}
 
-  // test input
-  P.play("4");
-  gameHistory += "4";
-  std::cout << gameHistory << "\n";
-
-  switch (std::stoi(gameHistory))
+void openingMoves(int fd, std::string& line, std::string& gameHistory, Position& P) {
+  if (gameHistory.size() <= 2)
   {
-  case 4141:
-    P.play("5"); gameHistory += "5";
-    break;
-  case 4142:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 4143:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4144:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4145:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4146:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4147:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4221:
-    P.play("5"); gameHistory += "5";
-    break;
-  case 4222:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4223:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 4224:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4225:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4226:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4227:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4361:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4362:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4363:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 4364:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4365:
-    P.play("5"); gameHistory += "5";
-    break;
-  case 4366:
-    P.play("7"); gameHistory += "7";
-    break;
-  case 4367:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 4441:
-    P.play("5"); gameHistory += "5";
-    break;
-  case 4442:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4443:
-    P.play("3"); gameHistory += "3";
-    break;
-  case 4444:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4445:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4446:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4447:
-    P.play("3"); gameHistory += "3";
-    break;
-  case 4521:
-    P.play("2"); gameHistory += "2";
-    break;
-  case 4522:
-    P.play("1"); gameHistory += "1";
-    break;
-  case 4523:
-    P.play("3"); gameHistory += "3";
-    break;
-  case 4524:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4525:
-    P.play("2"); gameHistory += "2";
-    break;
-  case 4526:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4527:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4661:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4662:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4663:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4664:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4665:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 4666:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4667:
-    P.play("6"); gameHistory += "6";
-    break;
-  case 4741:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4742:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4743:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4744:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4745:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4746:
-    P.play("4"); gameHistory += "4";
-    break;
-  case 4747:
-    P.play("4"); gameHistory += "4";
-    break;
+    switch (std::stoi(gameHistory))
+    {
+    case 41:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 42:
+      P.play("2"); playMove(fd, "2"); 
+      gameHistory += "2";
+      break;
+    case 43:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 44:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 45:
+      P.play("2"); playMove(fd, "2"); 
+      gameHistory += "2";
+      break;
+    case 46:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 47:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    }
+    std::cout << gameHistory << "\n";
   }
-  std::cout << gameHistory << "\n\n";
+  else 
+  {
+    switch (std::stoi(gameHistory))
+    {
+    case 4141:
+      P.play("5"); playMove(fd, "5"); 
+      gameHistory += "5";
+      break;
+    case 4142:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 4143:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4144:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4145:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4146:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4147:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4221:
+      P.play("5"); playMove(fd, "5"); 
+      gameHistory += "5";
+      break;
+    case 4222:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4223:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 4224:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4225:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4226:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4227:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4361:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4362:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4363:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 4364:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4365:
+      P.play("5"); playMove(fd, "5"); 
+      gameHistory += "5";
+      break;
+    case 4366:
+      P.play("7"); playMove(fd, "7"); 
+      gameHistory += "7";
+      break;
+    case 4367:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 4441:
+      P.play("5"); playMove(fd, "5"); 
+      gameHistory += "5";
+      break;
+    case 4442:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4443:
+      P.play("3"); playMove(fd, "3"); 
+      gameHistory += "3";
+      break;
+    case 4444:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4445:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4446:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4447:
+      P.play("3"); playMove(fd, "3"); 
+      gameHistory += "3";
+      break;
+    case 4521:
+      P.play("2"); playMove(fd, "2"); 
+      gameHistory += "2";
+      break;
+    case 4522:
+      P.play("1"); playMove(fd, "1"); 
+      gameHistory += "1";
+      break;
+    case 4523:
+      P.play("3"); playMove(fd, "3"); 
+      gameHistory += "3";
+      break;
+    case 4524:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4525:
+      P.play("2"); playMove(fd, "2"); 
+      gameHistory += "2";
+      break;
+    case 4526:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4527:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4661:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4662:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4663:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4664:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4665:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 4666:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4667:
+      P.play("6"); playMove(fd, "6"); 
+      gameHistory += "6";
+      break;
+    case 4741:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4742:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4743:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4744:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4745:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4746:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    case 4747:
+      P.play("4"); playMove(fd, "4"); 
+      gameHistory += "4";
+      break;
+    }
+    std::cout << gameHistory << "\n\n";
+  }
   line.clear();
 }
