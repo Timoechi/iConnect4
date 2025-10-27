@@ -56,7 +56,12 @@ typedef struct {
 static const adc adc_parameters[] = {
 		{&hadc1, ADC_CHANNEL_6},
 		{&hadc1, ADC_CHANNEL_7},
-		{&hadc1, ADC_CHANNEL_8}
+		{&hadc1, ADC_CHANNEL_8},
+		{&hadc1, ADC_CHANNEL_9},
+		{&hadc1, ADC_CHANNEL_1},
+		{&hadc1, ADC_CHANNEL_2},
+		{&hadc1, ADC_CHANNEL_15},
+		{&hadc1, ADC_CHANNEL_12},
 };
 /* USER CODE END PV */
 
@@ -119,15 +124,13 @@ int main(void)
   uint16_t ref[8]; // ref base
   float cal[8]; // calibration ratio
 
-  static uint16_t num_sensors = 3;
+  static uint16_t num_sensors = 8;
   static float threshold = 0.2;
   static uint32_t cal_t0 = 0;
   static uint32_t cal_ms = 2000; // calibration cycle time
   uint8_t player_column_num = 0;
   uint8_t alg_column_num = 0;
-
-  // Servo parameters
-  static uint16_t num_servos = 2;
+  uint8_t reset = 0;
 
   /* USER CODE END SysInit */
 
@@ -142,18 +145,6 @@ int main(void)
   for (int k = 0; k < num_sensors; k++) ldr[k] = ADC_Convert(adc_parameters[k].hadc, adc_parameters[k].channel, ADC_SAMPLETIME_247CYCLES_5);
   for (int k = 0; k < num_sensors; k++) ref[k] = ldr[k];
   for (int k = 0; k < num_sensors; k++) cal[k] = (float)ldr[k] / (float)ref[k];
-
-  // wait for raspberry pi
-  HAL_Delay(10000);
-  uint8_t ready = 'r';
-  printf("waiting...\r\n");
-  HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
-  printf("receiving...\r\n");
-  HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY);
-  printf("playing opening %c\r\n", alg_column_num);
-
-  // play opening move column (servo)
-  HAL_Delay(2000);
 
   /* USER CODE END 2 */
 
@@ -177,6 +168,15 @@ int main(void)
   /* USER CODE BEGIN BSP */
   /* -- Sample board code to switch on led ---- */
   BSP_LED_On(LED_GREEN);
+
+  // wait for rasb pi
+  HAL_Delay(10000);
+  uint8_t ready = 'r';
+  printf("waiting...\r\n");
+  HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
+  printf("receiving...\r\n");
+  HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY);
+  printf("playing opening %c\r\n", alg_column_num);
 
   /* USER CODE END BSP */
 
@@ -212,13 +212,30 @@ int main(void)
 			ldr[k] = ADC_Convert(adc_parameters[k].hadc, adc_parameters[k].channel, ADC_SAMPLETIME_247CYCLES_5);
 			if (cal[k] > ((float)ldr[k] / (float)ref[k]) + threshold) continue; // full column
 			// otherwise successful play
-			for (int j = 0; j < num_servos; j++) {} // close all servos
+			// close all servos
 
 			player_column_num = (uint8_t)('0' + k);
 			HAL_UART_Transmit(&huart3, &player_column_num, 1, HAL_MAX_DELAY);
 			printf("success\r\n");
 			HAL_Delay(2000);
 			if (HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY) == HAL_OK) printf("playing %c\r\n", alg_column_num);
+			HAL_Delay(2000);
+
+			if (HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY) == HAL_OK && alg_column_num == 'w')
+			{
+				printf("win detected...\r\n");
+				reset = '0';
+				HAL_UART_Transmit(&huart3, &reset, 1, HAL_MAX_DELAY);
+				printf("resetting!\r\n");
+				HAL_Delay(10000);
+
+				printf("waiting...\r\n");
+				HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
+				printf("receiving...\r\n");
+				HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY);
+				printf("playing opening %c\r\n", alg_column_num);
+				HAL_Delay(2000);
+			}
 			break;
 		}
 	}
@@ -363,17 +380,17 @@ static void MX_USART3_UART_Init(void)
   /* USER CODE BEGIN USART3_Init 1 */
 
   /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+	 huart3.Instance = USART3;
+	 huart3.Init.BaudRate = 115200;
+	 huart3.Init.WordLength = UART_WORDLENGTH_8B;
+	 huart3.Init.StopBits = UART_STOPBITS_1;
+	 huart3.Init.Parity = UART_PARITY_NONE;
+	 huart3.Init.Mode = UART_MODE_TX_RX;
+	 huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	 huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+	 huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+	 huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+	 huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   if (HAL_UART_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
