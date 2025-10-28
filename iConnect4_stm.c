@@ -45,6 +45,8 @@ COM_InitTypeDef BspCOMInit;
 __IO uint32_t BspButtonState = BUTTON_RELEASED;
 ADC_HandleTypeDef hadc1;
 
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
@@ -61,8 +63,18 @@ static const adc adc_parameters[] = {
 		{&hadc1, ADC_CHANNEL_1},
 		{&hadc1, ADC_CHANNEL_2},
 		{&hadc1, ADC_CHANNEL_15},
-		{&hadc1, ADC_CHANNEL_12},
+		{&hadc1, ADC_CHANNEL_12}
 };
+
+typedef struct {
+	TIM_HandleTypeDef *htim;
+	uint32_t channel;
+} tim;
+
+static const tim tim_parameters[] = {
+		{&htim2, TIM_CHANNEL_1}
+};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,6 +82,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -125,6 +138,7 @@ int main(void)
   float cal[8]; // calibration ratio
 
   static uint16_t num_sensors = 8;
+  static uint16_t num_servos = 7;
   static float threshold = 0.2;
   static uint32_t cal_t0 = 0;
   static uint32_t cal_ms = 2000; // calibration cycle time
@@ -138,6 +152,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   MX_ADC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
 
@@ -168,7 +183,15 @@ int main(void)
   /* USER CODE BEGIN BSP */
   /* -- Sample board code to switch on led ---- */
   BSP_LED_On(LED_GREEN);
-
+  
+  // servo check
+  for (int k = 0; k < num_servos; k++)
+  {	  
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(200);
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000); HAL_Delay(200);
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(200);
+  }
+  
   // wait for rasb pi
   HAL_Delay(10000);
   uint8_t ready = 'r';
@@ -184,6 +207,13 @@ int main(void)
 		  break;
 	  }
 	  HAL_Delay(100);
+  }
+
+  // close all servos except opening move
+  for (int k = 0; k < num_servos; k++)
+  {
+	  if (k == alg_column_num[0] - '0') continue;
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000);
   }
 
   /* USER CODE END BSP */
@@ -220,7 +250,7 @@ int main(void)
 			ldr[k] = ADC_Convert(adc_parameters[k].hadc, adc_parameters[k].channel, ADC_SAMPLETIME_247CYCLES_5);
 			if (cal[k] > ((float)ldr[k] / (float)ref[k]) + threshold) continue; // full column
 			// otherwise successful play
-			// close all servos
+			// close all other servos
 
 			player_column_num = (uint8_t)('0' + k);
 			HAL_UART_Transmit(&huart3, &player_column_num, 1, HAL_MAX_DELAY);
@@ -389,6 +419,55 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 84-1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 19999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
   * @brief USART3 Initialization Function
   * @param None
   * @retval None
@@ -403,17 +482,17 @@ static void MX_USART3_UART_Init(void)
   /* USER CODE BEGIN USART3_Init 1 */
 
   /* USER CODE END USART3_Init 1 */
-	 huart3.Instance = USART3;
-	 huart3.Init.BaudRate = 115200;
-	 huart3.Init.WordLength = UART_WORDLENGTH_8B;
-	 huart3.Init.StopBits = UART_STOPBITS_1;
-	 huart3.Init.Parity = UART_PARITY_NONE;
-	 huart3.Init.Mode = UART_MODE_TX_RX;
-	 huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	 huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-	 huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-	 huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-	 huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   if (HAL_UART_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
