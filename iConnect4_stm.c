@@ -129,7 +129,7 @@ int main(void)
   static uint32_t cal_t0 = 0;
   static uint32_t cal_ms = 2000; // calibration cycle time
   uint8_t player_column_num = 0;
-  uint8_t alg_column_num = 0;
+  char alg_column_num[2];
   uint8_t reset = 0;
 
   /* USER CODE END SysInit */
@@ -172,11 +172,19 @@ int main(void)
   // wait for rasb pi
   HAL_Delay(10000);
   uint8_t ready = 'r';
+  uint8_t received = 'i';
   printf("waiting...\r\n");
-  HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
-  printf("receiving...\r\n");
-  HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY);
-  printf("playing opening %c\r\n", alg_column_num);
+  for (;;)
+  {
+	  HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
+	  if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK)
+	  {
+		  printf("playing opening %d\r\n", alg_column_num[0] - '0');
+		  HAL_UART_Transmit(&huart3, &received, 1, HAL_MAX_DELAY);
+		  break;
+	  }
+	  HAL_Delay(100);
+  }
 
   /* USER CODE END BSP */
 
@@ -218,10 +226,18 @@ int main(void)
 			HAL_UART_Transmit(&huart3, &player_column_num, 1, HAL_MAX_DELAY);
 			printf("success\r\n");
 			HAL_Delay(2000);
-			if (HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY) == HAL_OK) printf("playing %c\r\n", alg_column_num);
-			HAL_Delay(2000);
+			for (;;)
+			{
+				if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK && alg_column_num[0] <= '7' && alg_column_num[0] >= '1')
+				{
+					printf("playing %d\r\n", alg_column_num[0] - '0');
+					HAL_UART_Transmit(&huart3, &received, 1, HAL_MAX_DELAY);
+					break;
+				}
+				HAL_Delay(100);
+			}
 
-			if (HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY) == HAL_OK && alg_column_num == 'w')
+			if (alg_column_num[1] == 'w')
 			{
 				printf("win detected...\r\n");
 				reset = '0';
@@ -230,10 +246,17 @@ int main(void)
 				HAL_Delay(10000);
 
 				printf("waiting...\r\n");
-				HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
-				printf("receiving...\r\n");
-				HAL_UART_Receive(&huart3, &alg_column_num, 1, HAL_MAX_DELAY);
-				printf("playing opening %c\r\n", alg_column_num);
+				for (;;)
+				{
+					HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
+					if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK)
+					{
+						printf("playing opening %d\r\n", alg_column_num[0] - '0');
+						HAL_UART_Transmit(&huart3, &received, 1, HAL_MAX_DELAY);
+						break;
+					}
+					HAL_Delay(100);
+				}
 				HAL_Delay(2000);
 			}
 			break;
