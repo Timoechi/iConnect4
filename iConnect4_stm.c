@@ -46,6 +46,7 @@ __IO uint32_t BspButtonState = BUTTON_RELEASED;
 ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart3;
 
@@ -72,7 +73,12 @@ typedef struct {
 } tim;
 
 static const tim tim_parameters[] = {
-		{&htim2, TIM_CHANNEL_1}
+		{&htim2, TIM_CHANNEL_1},
+		{&htim2, TIM_CHANNEL_3},
+		{&htim3, TIM_CHANNEL_1},
+		{&htim3, TIM_CHANNEL_2},
+		{&htim3, TIM_CHANNEL_3},
+		{&htim3, TIM_CHANNEL_4}
 };
 
 /* USER CODE END PV */
@@ -83,6 +89,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -138,13 +145,14 @@ int main(void)
   float cal[8]; // calibration ratio
 
   static uint16_t num_sensors = 8;
-  static uint16_t num_servos = 7;
+  static uint16_t num_servos = 6;
   static float threshold = 0.2;
   static uint32_t cal_t0 = 0;
   static uint32_t cal_ms = 2000; // calibration cycle time
   uint8_t player_column_num = 0;
   char alg_column_num[2];
   uint8_t reset = 0;
+  uint8_t first_move = 0;
 
   /* USER CODE END SysInit */
 
@@ -153,6 +161,13 @@ int main(void)
   MX_USART3_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  MX_TIM3_Init();
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
 
@@ -183,15 +198,15 @@ int main(void)
   /* USER CODE BEGIN BSP */
   /* -- Sample board code to switch on led ---- */
   BSP_LED_On(LED_GREEN);
-  
+
   // servo check
   for (int k = 0; k < num_servos; k++)
-  {	  
-	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(200);
-	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000); HAL_Delay(200);
-	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(200);
+  {
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(2000);
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000); HAL_Delay(2000);
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(2000);
   }
-  
+
   // wait for rasb pi
   HAL_Delay(10000);
   uint8_t ready = 'r';
@@ -214,7 +229,11 @@ int main(void)
   {
 	  if (k == alg_column_num[0] - '0') continue;
 	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000);
+	  HAL_Delay(200);
+	  printf("closing %d\r\n", k + 1);
   }
+
+  first_move = 1; // first move set
 
   /* USER CODE END BSP */
 
@@ -241,55 +260,81 @@ int main(void)
 		printf("ldr%d value: %u\r\n",k,(unsigned)ldr[k]);
 	*/
 
-	for (int k = 1; k < num_sensors; k++)
+	if (first_move)
 	{
-		if (cal[k] > ((float)ldr[k] / (float)ref[k]) + threshold)
+		// check if opening move arrived at column
+		if (cal[4] > ((float)ldr[4] / (float)ref[4]) + threshold)
 		{
-			printf("checking %d\r\n", k);
-			HAL_Delay(2000); // check if full column
-			ldr[k] = ADC_Convert(adc_parameters[k].hadc, adc_parameters[k].channel, ADC_SAMPLETIME_247CYCLES_5);
-			if (cal[k] > ((float)ldr[k] / (float)ref[k]) + threshold) continue; // full column
-			// otherwise successful play
-			// close all other servos
-
-			player_column_num = (uint8_t)('0' + k);
-			HAL_UART_Transmit(&huart3, &player_column_num, 1, HAL_MAX_DELAY);
-			printf("success\r\n");
+			printf("confirming opening move...\r\n");
 			HAL_Delay(2000);
-			for (;;)
+			ldr[4] = ADC_Convert(adc_parameters[4].hadc, adc_parameters[4].channel, ADC_SAMPLETIME_247CYCLES_5);
+			if (cal[4] > ((float)ldr[4] / (float)ref[4]) + threshold) break; // full column
+			// otherwise successful play
+			// open all servos
+			for (int k = 0; k < num_servos; k++) __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000);
+			// end first move
+			first_move = 0;
+			break;
+		}
+		HAL_Delay(100);
+	}
+	else
+	{
+		for (int k = 1; k < num_sensors; k++)
+		{
+			if (cal[k] > ((float)ldr[k] / (float)ref[k]) + threshold)
 			{
-				if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK && alg_column_num[0] <= '7' && alg_column_num[0] >= '1')
-				{
-					printf("playing %d\r\n", alg_column_num[0] - '0');
-					HAL_UART_Transmit(&huart3, &received, 1, HAL_MAX_DELAY);
-					break;
-				}
-				HAL_Delay(100);
-			}
+				printf("checking %d\r\n", k);
+				HAL_Delay(2000); // check if full column
+				ldr[k] = ADC_Convert(adc_parameters[k].hadc, adc_parameters[k].channel, ADC_SAMPLETIME_247CYCLES_5);
+				if (cal[k] > ((float)ldr[k] / (float)ref[k]) + threshold) continue; // full column
+				// otherwise successful play
 
-			if (alg_column_num[1] == 'w')
-			{
-				printf("win detected...\r\n");
-				reset = '0';
-				HAL_UART_Transmit(&huart3, &reset, 1, HAL_MAX_DELAY);
-				printf("resetting!\r\n");
-				HAL_Delay(10000);
-
-				printf("waiting...\r\n");
+				player_column_num = (uint8_t)('0' + k);
+				HAL_UART_Transmit(&huart3, &player_column_num, 1, HAL_MAX_DELAY);
+				printf("success\r\n");
+				HAL_Delay(2000);
 				for (;;)
 				{
-					HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
-					if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK)
+					if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK && alg_column_num[0] <= '7' && alg_column_num[0] >= '1')
 					{
-						printf("playing opening %d\r\n", alg_column_num[0] - '0');
+						printf("playing %d\r\n", alg_column_num[0] - '0');
 						HAL_UART_Transmit(&huart3, &received, 1, HAL_MAX_DELAY);
+						// close all columns except algorithm move
+						for (int k = 0; k < num_servos; k++)
+						{
+							if (k == alg_column_num[0] - '0') continue;
+							__HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000);
+						}
 						break;
 					}
 					HAL_Delay(100);
 				}
-				HAL_Delay(2000);
+
+				if (alg_column_num[1] == 'w')
+				{
+					printf("win detected...\r\n");
+					reset = '0';
+					HAL_UART_Transmit(&huart3, &reset, 1, HAL_MAX_DELAY);
+					printf("resetting!\r\n");
+					HAL_Delay(10000);
+
+					printf("waiting...\r\n");
+					for (;;)
+					{
+						HAL_UART_Transmit(&huart3, &ready, 1, HAL_MAX_DELAY);
+						if (HAL_UART_Receive(&huart3, (uint8_t*)&alg_column_num, 2, 100) == HAL_OK)
+						{
+							printf("playing opening %d\r\n", alg_column_num[0] - '0');
+							HAL_UART_Transmit(&huart3, &received, 1, HAL_MAX_DELAY);
+							break;
+						}
+						HAL_Delay(100);
+					}
+					HAL_Delay(2000);
+				}
+				break;
 			}
-			break;
 		}
 	}
     /* USER CODE END WHILE */
@@ -460,10 +505,75 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 84-1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 19999;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
 
 }
 
