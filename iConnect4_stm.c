@@ -107,6 +107,10 @@ static void MX_TIM16_Init(void);
 static void MX_TIM17_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_ADC3_Init(void);
+
+static void shutdown_request(void);
+static void conditional_standby(void);
+static void enter_standby(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -130,6 +134,36 @@ static uint16_t ADC_Convert(ADC_HandleTypeDef *hadc, uint32_t channel, uint32_t 
     uint16_t v = (uint16_t)HAL_ADC_GetValue(hadc);
     HAL_ADC_Stop(hadc);
     return v;
+}
+
+static void conditional_standby(void)
+{
+	if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB)) // if 1, then rebooting from standby
+	{
+		__HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
+		__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+		
+		// signal power ic
+		
+	}
+	else enter_standby(); // fresh boot
+}
+
+static void shutdown_request(void)
+{
+	// signal pi to shutdown
+	// signal power ic to cut power
+	
+	enter_standby();
+}
+
+static void enter_standby(void)
+{
+	HAL_PWR_DisableWakeUpPin(PWR_WAKEUP_PIN1); // let wakeup pin settle
+	__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU); // clear wakeup flag
+	HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);
+	
+	HAL_PWR_EnterSTANDBYMode();
 }
 
 /* USER CODE END 0 */
@@ -219,12 +253,12 @@ int main(void)
   /* USER CODE BEGIN BSP */
   /* -- Sample board code to switch on led ---- */
   BSP_LED_On(LED_GREEN);
-
+  
   // servo check
   for (int k = 0; k < num_servos; k++)
   {
 	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(2000);
-	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000); HAL_Delay(2000);
+	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1697); HAL_Delay(2000);
 	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1000); HAL_Delay(2000);
   }
 
@@ -249,7 +283,8 @@ int main(void)
   for (int k = 0; k < num_servos; k++)
   {
 	  if (k == alg_column_num[0] - '1') continue;
-	  __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000);
+	  if (k == 5) __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1250);
+	  else __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1697);
 	  HAL_Delay(200);
 	  printf("closing %d\r\n", k + 1);
   }
@@ -274,7 +309,7 @@ int main(void)
 		 for (int k = 0; k < num_sensors; k++) cal[k] = (float)ldr[k] / (float)ref[k];
 	  }
 	  cal_t0 = HAL_GetTick();
-	}
+    }
 
 	// for (int k = 0; k < num_sensors; k++) printf("ldr%d value: %u\r\n",k,(unsigned)ldr[k]); HAL_Delay(500);
 
@@ -286,7 +321,7 @@ int main(void)
 			printf("confirming opening move...\r\n");
 			HAL_Delay(2000);
 			ldr[4] = ADC_Convert(adc_parameters[4].hadc, adc_parameters[4].channel, ADC_SAMPLETIME_247CYCLES_5);
-			if (cal[4] > ((float)ldr[4] / (float)ref[4]) + threshold) continue; // full column
+			if (cal[4] > ((float)ldr[4] / (float)ref[4]) + threshold) continue; // object stuck or false obstruction
 			// otherwise successful play
 			printf("confirmed!\r\n");
 			// open all servos
@@ -322,7 +357,8 @@ int main(void)
 						for (int k = 0; k < num_servos; k++)
 						{
 							if (k == alg_column_num[0] - '1') continue;
-							__HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 2000);
+							if (k == 5) __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1250);
+							else __HAL_TIM_SET_COMPARE(tim_parameters[k].htim, tim_parameters[k].channel, 1697);
 						}
 						break;
 					}
@@ -346,6 +382,8 @@ int main(void)
 				if (alg_column_num[1] == 'w')
 				{
 					printf("win detected...\r\n");
+					for (;;) if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_12)) break;
+
 					reset = '0';
 					HAL_UART_Transmit(&huart3, &reset, 1, HAL_MAX_DELAY);
 					printf("resetting!\r\n");
@@ -1103,6 +1141,7 @@ static void MX_USART3_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -1112,6 +1151,12 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin : PC12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
